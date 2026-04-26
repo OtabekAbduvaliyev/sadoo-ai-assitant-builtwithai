@@ -1,92 +1,204 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { 
-  Phone, 
-  Mic, 
-  MicOff, 
-  User, 
-  MessageSquare, 
-  Lightbulb, 
-  ChevronRight, 
-  Search, 
-  Activity,
-  History,
-  TrendingUp,
-  Settings,
-  HelpCircle,
-  FileText,
-  Zap,
-  Globe,
-  Share2,
-  Clock,
+import {
+  Phone,
+  PhoneOff,
+  Mic,
+  MicOff,
+  ChevronRight,
   CheckCircle2,
-  AlertCircle
+  Zap,
+  AlertTriangle,
+  Info,
+  TrendingUp,
+  Clock,
+  BarChart2,
+  User,
+  History,
+  Layers,
+  Activity,
+  X,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { CRMContact, TranscriptEntry, AISuggestion, Sentiment, StrategySynthesis } from './types';
-import { MOCK_CONTACTS, SALES_SCRIPTS } from './constants';
+import { MOCK_CONTACTS } from './constants';
 import { analyzeConversation } from './services/geminiService';
 import { speakText } from './services/elevenLabsService';
 
-// --- Sub-components ---
+/* ─────────────────────────────────────
+   Waveform — live mic indicator
+───────────────────────────────────── */
+const Waveform = ({ active }: { active: boolean }) => (
+  <div style={{ display: 'flex', alignItems: 'center', gap: 2, height: 16 }}>
+    {[0.6, 1, 0.75, 1, 0.5].map((h, i) => (
+      <div
+        key={i}
+        style={{
+          width: 2,
+          borderRadius: 2,
+          background: active ? 'var(--accent)' : 'var(--text-dim)',
+          height: active ? undefined : 4,
+          animation: active ? `wave ${0.8 + i * 0.15}s ease-in-out infinite alternate` : 'none',
+          animationDelay: `${i * 0.1}s`,
+          minHeight: 4,
+          maxHeight: 14,
+          transform: `scaleY(${h})`,
+        }}
+      />
+    ))}
+  </div>
+);
 
-interface StatCardProps {
+/* ─────────────────────────────────────
+   Sentiment pill
+───────────────────────────────────── */
+const SENTIMENT_MAP: Record<string, { label: string; color: string; dot: string }> = {
+  [Sentiment.POSITIVE]: { label: 'Ijobiy', color: 'var(--green-muted)', dot: 'var(--green)' },
+  [Sentiment.NEGATIVE]: { label: 'Salbiy', color: 'var(--red-muted)', dot: 'var(--red)' },
+  [Sentiment.NEUTRAL]: { label: 'Neytral', color: 'var(--bg-3)', dot: 'var(--text-dim)' },
+};
+
+const SentimentPill = ({ sentiment }: { sentiment: Sentiment }) => {
+  const s = SENTIMENT_MAP[sentiment] ?? SENTIMENT_MAP[Sentiment.NEUTRAL];
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 6,
+      background: s.color, borderRadius: 100,
+      padding: '4px 10px', fontSize: 11, fontWeight: 600,
+      color: 'var(--text-secondary)', letterSpacing: '0.02em',
+    }}>
+      <div style={{ width: 6, height: 6, borderRadius: '50%', background: s.dot, flexShrink: 0 }} />
+      {s.label}
+    </div>
+  );
+};
+
+/* ─────────────────────────────────────
+   Metric card
+───────────────────────────────────── */
+interface MetricProps {
   label: string;
-  value: string | number;
-  icon: any;
-  color: string;
+  value: string;
   trend?: string;
+  trendUp?: boolean;
+  icon: React.ElementType;
+  accent?: string;
 }
 
-const StatCard = React.memo(({ label, value, icon: Icon, color, trend }: StatCardProps) => (
-  <div className="bg-surface-800 p-4 rounded-xl border border-white/5 relative overflow-hidden group">
-    <div className={`absolute top-0 right-0 w-24 h-24 ${color} opacity-[0.03] -mr-8 -mt-8 rounded-full group-hover:scale-110 transition-transform`} />
-    <div className="flex items-center gap-4 relative z-10">
-      <div className={`p-2.5 rounded-lg ${color} bg-opacity-10 ring-1 ring-white/10`}>
-        <Icon className={`w-5 h-5 ${color.replace('bg-', 'text-')}`} />
-      </div>
-      <div className="flex-1">
-        <p className="text-[10px] text-slate-400 uppercase font-bold tracking-widest">{label}</p>
-        <div className="flex items-end gap-2">
-            <p className="text-xl font-bold bg-gradient-to-br from-white to-slate-400 bg-clip-text text-transparent">{value}</p>
-            {trend && <span className="text-[10px] text-emerald-400 font-bold mb-1">+{trend}%</span>}
-        </div>
+const MetricCard = ({ label, value, trend, trendUp, icon: Icon, accent = 'var(--accent)' }: MetricProps) => (
+  <div style={{
+    background: 'var(--bg-2)', borderRadius: 10, padding: '14px 16px',
+    display: 'flex', alignItems: 'center', gap: 12,
+  }}>
+    <div style={{
+      width: 36, height: 36, borderRadius: 8, flexShrink: 0,
+      background: `color-mix(in srgb, ${accent} 12%, transparent)`,
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+    }}>
+      <Icon size={15} color={accent} />
+    </div>
+    <div style={{ flex: 1, minWidth: 0 }}>
+      <div style={{ fontSize: 10, color: 'var(--text-dim)', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 2 }}>{label}</div>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+        <span style={{ fontSize: 20, fontWeight: 700, color: 'var(--text-primary)', fontVariantNumeric: 'tabular-nums' }}>{value}</span>
+        {trend && (
+          <span style={{ fontSize: 10, fontWeight: 700, color: trendUp ? 'var(--green)' : 'var(--red)' }}>
+            {trendUp ? '↑' : '↓'} {trend}
+          </span>
+        )}
       </div>
     </div>
   </div>
-));
+);
 
-interface SuggestionCardProps {
-  suggestion: AISuggestion;
-}
+/* ─────────────────────────────────────
+   Suggestion card
+───────────────────────────────────── */
+const PRIORITY_CONFIG = {
+  high: { border: 'var(--red)', bg: 'var(--red-muted)', icon: AlertTriangle, label: 'Muhim' },
+  medium: { border: 'var(--amber)', bg: 'var(--amber-muted)', icon: Info, label: "O'rta" },
+  low: { border: 'var(--green)', bg: 'var(--green-muted)', icon: TrendingUp, label: 'Past' },
+};
 
-const SuggestionCard = React.memo(({ suggestion }: SuggestionCardProps) => {
-  const icons = useMemo(() => ({
-    tactic: <Zap className="w-4 h-4" />,
-    feedback: <Lightbulb className="w-4 h-4" />,
-    alert: <AlertCircle className="w-4 h-4" />,
-  }), []);
-
-  const priorityColors = useMemo(() => ({
-    high: 'from-red-500/20 to-transparent border-red-500/50 text-red-200',
-    medium: 'from-amber-500/20 to-transparent border-amber-500/50 text-amber-200',
-    low: 'from-brand/20 to-transparent border-brand/50 text-brand',
-  }), []);
-
+const SuggestionCard = React.memo(({ suggestion }: { suggestion: AISuggestion }) => {
+  const cfg = PRIORITY_CONFIG[suggestion.priority];
+  const Icon = cfg.icon;
   return (
     <motion.div
-      initial={{ opacity: 0, y: 10 }}
+      initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
-      className={`p-4 rounded-xl border bg-gradient-to-br ${priorityColors[suggestion.priority]} backdrop-blur-sm`}
+      exit={{ opacity: 0, y: -8 }}
+      transition={{ type: 'spring', stiffness: 320, damping: 28 }}
+      style={{
+        borderLeft: `2px solid ${cfg.border}`,
+        background: cfg.bg,
+        borderRadius: '0 8px 8px 0',
+        padding: '10px 14px',
+      }}
     >
-      <div className="flex items-center gap-2 mb-2">
-        <div className={`p-1.5 rounded-md bg-white/10`}>{icons[suggestion.type]}</div>
-        <span className="font-bold text-sm tracking-tight">{suggestion.title}</span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+        <Icon size={12} color={cfg.border} />
+        <span style={{ fontSize: 11, fontWeight: 700, color: cfg.border, letterSpacing: '0.04em' }}>{cfg.label}</span>
+        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginLeft: 2 }}>{suggestion.title}</span>
       </div>
-      <p className="text-xs leading-relaxed opacity-80 font-medium">{suggestion.description}</p>
+      <p style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.55, margin: 0 }}>{suggestion.description}</p>
     </motion.div>
   );
 });
 
+/* ─────────────────────────────────────
+   Transcript bubble
+───────────────────────────────────── */
+const Bubble: React.FC<{ entry: TranscriptEntry }> = ({ entry }) => {
+  const isOp = entry.speaker === 'operator';
+  return (
+    <motion.div
+      initial={{ opacity: 0, x: isOp ? 8 : -8 }}
+      animate={{ opacity: 1, x: 0 }}
+      transition={{ duration: 0.2 }}
+      style={{ display: 'flex', flexDirection: 'column', alignItems: isOp ? 'flex-end' : 'flex-start' }}
+    >
+      <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-dim)', marginBottom: 4, paddingInline: 2, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+        {isOp ? 'Siz' : 'Mijoz'}
+      </span>
+      <div style={{
+        maxWidth: '88%', padding: '9px 13px', borderRadius: isOp ? '12px 2px 12px 12px' : '2px 12px 12px 12px',
+        background: isOp ? 'var(--accent)' : 'var(--bg-3)',
+        color: isOp ? '#fff' : 'var(--text-primary)',
+        fontSize: 13, lineHeight: 1.55,
+      }}>
+        {entry.text}
+      </div>
+    </motion.div>
+  );
+};
+
+/* ─────────────────────────────────────
+   Skeleton loader
+───────────────────────────────────── */
+const Skeleton = ({ h = 72 }: { h?: number }) => (
+  <div style={{ height: h, borderRadius: 8, background: 'var(--bg-3)', overflow: 'hidden', position: 'relative' }}>
+    <div style={{
+      position: 'absolute', inset: 0,
+      background: 'linear-gradient(90deg, transparent 0%, var(--bg-2) 50%, transparent 100%)',
+      backgroundSize: '200% 100%',
+      animation: 'shimmer 1.6s ease-in-out infinite',
+    }} />
+  </div>
+);
+
+/* ─────────────────────────────────────
+   Section header
+───────────────────────────────────── */
+const SectionHead = ({ children }: { children: React.ReactNode }) => (
+  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+    <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--text-dim)', whiteSpace: 'nowrap' }}>{children}</span>
+    <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+  </div>
+);
+
+/* ─────────────────────────────────────
+   Main App
+───────────────────────────────────── */
 export default function App() {
   const [isCalling, setIsCalling] = useState(false);
   const [activeContact, setActiveContact] = useState<CRMContact | null>(null);
@@ -98,444 +210,742 @@ export default function App() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [interimText, setInterimText] = useState('');
-  
+  const [callSeconds, setCallSeconds] = useState(0);
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [isSoldSuccess, setIsSoldSuccess] = useState(false);
+
   const recognitionRef = useRef<any>(null);
   const isListeningRef = useRef(false);
   const interimTextRef = useRef('');
   const silenceTimerRef = useRef<any>(null);
   const analysisTimerRef = useRef<any>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const timerRef = useRef<any>(null);
 
-  // Update refs
+  useEffect(() => { isListeningRef.current = isListening; }, [isListening]);
+  useEffect(() => { interimTextRef.current = interimText; }, [interimText]);
+
+  /* Call timer */
   useEffect(() => {
-    isListeningRef.current = isListening;
-    interimTextRef.current = interimText;
-  }, [isListening, interimText]);
-
-  // Speech Recognition Setup
-  useEffect(() => {
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (SpeechRecognition) {
-      recognitionRef.current = new SpeechRecognition();
-      recognitionRef.current.continuous = true;
-      recognitionRef.current.interimResults = true;
-      recognitionRef.current.lang = 'uz-UZ';
-
-      recognitionRef.current.onresult = (event: any) => {
-        let interim = '';
-        if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
-
-        for (let i = event.resultIndex; i < event.results.length; ++i) {
-          const transcriptChunk = event.results[i][0].transcript;
-          if (event.results[i].isFinal) {
-            handleAddTranscript(transcriptChunk.trim(), 'customer');
-            setInterimText('');
-          } else {
-            interim += transcriptChunk;
-          }
-        }
-        
-        if (interim) {
-          setInterimText(interim);
-          // Auto-commit interim after 1.5s of silence
-          silenceTimerRef.current = setTimeout(() => {
-            if (interimTextRef.current) {
-              handleAddTranscript(interimTextRef.current.trim(), 'customer');
-              setInterimText('');
-            }
-          }, 1500);
-        }
-      };
-
-      recognitionRef.current.onend = () => {
-        if (isListeningRef.current) {
-          try {
-            recognitionRef.current.start();
-          } catch (e) {
-            console.error("Failed to restart recognition:", e);
-          }
-        }
-      };
-
-      recognitionRef.current.onerror = (event: any) => {
-        console.error('Speech Recognition Error', event.error);
-        if (event.error === 'not-allowed') {
-          setIsListening(false);
-        }
-      };
+    if (isCalling) {
+      setCallSeconds(0);
+      timerRef.current = setInterval(() => setCallSeconds(s => s + 1), 1000);
+    } else {
+      clearInterval(timerRef.current);
     }
-    
-    return () => {
+    return () => clearInterval(timerRef.current);
+  }, [isCalling]);
+
+  const callDuration = useMemo(() => {
+    const m = Math.floor(callSeconds / 60);
+    const s = callSeconds % 60;
+    return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  }, [callSeconds]);
+
+  /* Speech recognition */
+  useEffect(() => {
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SR) return;
+    recognitionRef.current = new SR();
+    recognitionRef.current.continuous = true;
+    recognitionRef.current.interimResults = true;
+    recognitionRef.current.lang = 'uz-UZ';
+
+    recognitionRef.current.onresult = (e: any) => {
+      let interim = '';
       if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+      for (let i = e.resultIndex; i < e.results.length; ++i) {
+        const chunk = e.results[i][0].transcript;
+        if (e.results[i].isFinal) {
+          handleAddTranscript(chunk.trim(), 'customer');
+          setInterimText('');
+        } else {
+          interim += chunk;
+        }
+      }
+      if (interim) {
+        setInterimText(interim);
+        silenceTimerRef.current = setTimeout(() => {
+          if (interimTextRef.current) {
+            handleAddTranscript(interimTextRef.current.trim(), 'customer');
+            setInterimText('');
+          }
+        }, 700);
+      }
     };
+
+    recognitionRef.current.onend = () => {
+      if (isListeningRef.current) {
+        try { recognitionRef.current.start(); } catch { }
+      }
+    };
+    recognitionRef.current.onerror = (e: any) => {
+      if (e.error === 'not-allowed') setIsListening(false);
+    };
+    return () => { if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current); };
   }, []);
 
   const toggleListening = useCallback(() => {
     if (!recognitionRef.current) return;
-
     if (isListening) {
-      recognitionRef.current.stop();
-      setIsListening(false);
-      setInterimText('');
+      recognitionRef.current.stop(); setIsListening(false); setInterimText('');
     } else {
-      try {
-        recognitionRef.current.start();
-        setIsListening(true);
-      } catch (e) {
-        console.error("Start error:", e);
-      }
+      try { recognitionRef.current.start(); setIsListening(true); } catch { }
     }
   }, [isListening]);
 
   useEffect(() => {
     if (scrollRef.current) {
-        scrollRef.current.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
+      scrollRef.current.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
     }
   }, [transcript, interimText]);
 
   const handleStartCall = useCallback(() => {
     setIsCalling(true);
     setActiveContact(MOCK_CONTACTS[0]);
-    setTranscript([
-      { id: '1', timestamp: new Date(), speaker: 'operator', text: 'Assalomu alaykum, Dilshod aka! Sadoo AI assistant orqali uchrashuvimizni boshlasak.' }
-    ]);
-    
-    // Auto-start listening on call start
+    setTranscript([{ id: '1', timestamp: new Date(), speaker: 'operator', text: 'Assalomu alaykum, Dilshod aka! Sadoo AI assistant orqali uchrashuvimizni boshlasak.' }]);
     if (recognitionRef.current && !isListeningRef.current) {
-      try {
-        recognitionRef.current.start();
-        setIsListening(true);
-      } catch (e) {
-        console.error("Auto-start mic failed:", e);
-      }
+      try { recognitionRef.current.start(); setIsListening(true); } catch { }
     }
   }, []);
 
   const handleEndCall = useCallback(() => {
-    setIsCalling(false);
-    setActiveContact(null);
-    setTranscript([]);
-    setSuggestions([]);
-    setStrategy(null);
-    setSentiment(Sentiment.NEUTRAL);
+    setIsCalling(false); setActiveContact(null); setTranscript([]);
+    setSuggestions([]); setStrategy(null); setSentiment(Sentiment.NEUTRAL);
     if (isListeningRef.current && recognitionRef.current) {
-      recognitionRef.current.stop();
-      setIsListening(false);
-      setInterimText('');
+      recognitionRef.current.stop(); setIsListening(false); setInterimText('');
     }
     if (analysisTimerRef.current) clearTimeout(analysisTimerRef.current);
   }, []);
 
+  const handleSold = useCallback(() => {
+    setIsSoldSuccess(true);
+    setTimeout(() => setIsSoldSuccess(false), 5000);
+    handleEndCall();
+  }, [handleEndCall]);
+
   const handleAddTranscript = useCallback(async (text: string, speaker: 'operator' | 'customer' = 'customer') => {
     if (!text.trim()) return;
-    
-    // Use a more robust prefix to prevent duplicate key errors
     const entryId = `entry-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
-    
+
     setTranscript(prev => {
-      const newEntry: TranscriptEntry = {
-        id: entryId,
-        timestamp: new Date(),
-        speaker,
-        text
-      };
+      const newEntry: TranscriptEntry = { id: entryId, timestamp: new Date(), speaker, text };
       const updated = [...prev, newEntry];
-      
-      // Debounced Analysis: Clear existing timer and start a new one
+
       if (analysisTimerRef.current) clearTimeout(analysisTimerRef.current);
-      
       analysisTimerRef.current = setTimeout(() => {
         setIsAnalyzing(true);
         const fullText = updated.map(t => `${t.speaker === 'operator' ? 'Operator' : 'Mijoz'}: ${t.text}`).join('\n');
-        
         analyzeConversation(fullText).then(result => {
           setSentiment(result.sentiment);
-          setSuggestions(prevS => {
-            const fresh = [...result.suggestions];
-            
-            // Check for quota alerts in suggestions
-            const hasQuotaAlert = fresh.some(s => s.description.includes('limit') || s.description.includes('band'));
-            
-            // Only speak if it's a real high priority suggestion and not a repeat error
-            if (fresh.length > 0 && fresh[0].priority === 'high' && !hasQuotaAlert) {
-              speakText(fresh[0].title + ". " + fresh[0].description);
-            }
-            
-            return [...fresh, ...prevS].slice(0, 5);
-          });
-          
+          setSuggestions(result.suggestions.slice(0, 4));
+          if (result.suggestions[0]?.priority === 'high') {
+            speakText(result.suggestions[0].title + '. ' + result.suggestions[0].description);
+          }
           if (result.strategy) {
-            setStrategy((prevStrat) => {
-              if (prevStrat?.methodName !== result.strategy?.methodName) {
-                speakText("Yangi strategiya: " + result.strategy?.methodName);
-              }
+            setStrategy(prev => {
+              if (prev?.methodName !== result.strategy?.methodName) speakText('Yangi strategiya: ' + result.strategy?.methodName);
               return result.strategy;
             });
           }
           setIsAnalyzing(false);
         }).catch(() => setIsAnalyzing(false));
-      }, 2500); // 2.5s debounce to save quota significantly
+      }, 400);
 
       return updated;
     });
     setInputText('');
   }, []);
 
+  /* ─── Render ─── */
   return (
-    <div className="h-screen w-full flex bg-[#0A0C10] text-slate-200 overflow-hidden font-sans">
-      
-      {/* 1. LEFT: LIVE TRANSCRIPTION (4 cols) */}
-      <section className="w-[30%] min-w-[350px] border-r border-white/5 flex flex-col bg-surface-900/50">
-        <div className="p-5 border-b border-white/5 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-                <div className="w-8 h-8 bg-brand rounded-lg flex items-center justify-center font-black text-white shadow-lg glow-blue">S</div>
-                <h1 className="font-bold tracking-tight">SADOO <span className="text-brand">AI</span></h1>
-            </div>
-            <div className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase transition-colors ${
-                sentiment === Sentiment.POSITIVE ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/20' :
-                sentiment === Sentiment.NEGATIVE ? 'bg-red-500/20 text-red-400 border border-red-500/20' :
-                'bg-slate-500/20 text-slate-400 border border-slate-500/20'
-            }`}>
-                {sentiment} Mood
-            </div>
-        </div>
+    <>
+      {/* Global styles injected once */}
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap');
 
-        <div ref={scrollRef} className="flex-1 overflow-y-auto p-5 space-y-6 no-scrollbar">
-            {transcript.map((entry) => (
-                <motion.div 
-                    initial={{ opacity: 0, x: -10 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    key={entry.id} 
-                    className={`flex flex-col ${entry.speaker === 'operator' ? 'items-end' : 'items-start'}`}
-                >
-                    <div className="flex items-center gap-2 mb-1 px-1">
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                            {entry.speaker === 'operator' ? 'Siz' : 'Mijoz'}
-                        </span>
-                        <Clock className="w-2.5 h-2.5 text-slate-600" />
-                    </div>
-                    <div className={`max-w-[90%] p-3.5 rounded-2xl text-sm leading-relaxed ${
-                        entry.speaker === 'operator' 
-                        ? 'bg-brand/10 text-brand border border-brand/20 rounded-tr-none' 
-                        : 'bg-surface-800 text-slate-300 rounded-tl-none border border-white/5'
-                    }`}>
-                        {entry.text}
-                    </div>
-                </motion.div>
-            ))}
-            
-            {/* Interim Text Display */}
-            {interimText && (
-                <div className="flex flex-col items-start animate-pulse mb-6">
-                    <div className="flex items-center gap-2 mb-1 px-1">
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Mijoz gapirmoqda...</span>
-                    </div>
-                    <div className="max-w-[80%] p-3.5 rounded-2xl bg-white/5 text-slate-400 text-sm border border-white/5 rounded-tl-none italic">
-                        {interimText}...
-                    </div>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        :root {
+          --bg-1: #F5F7FA;
+          --bg-2: #FFFFFF;
+          --bg-3: #EDF0F5;
+          --bg-4: #E2E6ED;
+          --border: rgba(0,0,0,0.07);
+          --border-strong: rgba(0,0,0,0.11);
+
+          --text-primary: #0F1623;
+          --text-secondary: #4B5772;
+          --text-dim: #8C97AE;
+
+          --accent: #2563EB;
+          --accent-muted: rgba(37,99,235,0.08);
+          --accent-hover: #1D4ED8;
+
+          --green: #16A34A;
+          --green-muted: rgba(22,163,74,0.08);
+          --red: #DC2626;
+          --red-muted: rgba(220,38,38,0.07);
+          --amber: #D97706;
+          --amber-muted: rgba(217,119,6,0.08);
+
+          --font: 'DM Sans', sans-serif;
+          --mono: 'DM Mono', monospace;
+          --radius: 12px;
+        }
+
+        html, body, #root { height: 100%; }
+
+        body {
+          font-family: var(--font);
+          background: var(--bg-1);
+          color: var(--text-primary);
+          -webkit-font-smoothing: antialiased;
+        }
+
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: var(--bg-4); border-radius: 4px; }
+
+        input::placeholder { color: var(--text-dim); }
+        input:focus { outline: none; }
+
+        button { cursor: pointer; font-family: var(--font); border: none; }
+
+        @keyframes wave {
+          from { transform: scaleY(0.4); }
+          to   { transform: scaleY(1); }
+        }
+
+        @keyframes shimmer {
+          0%   { transform: translateX(-100%); }
+          100% { transform: translateX(100%); }
+        }
+
+        @keyframes ping {
+          0%, 100% { opacity: 1; transform: scale(1); }
+          50%       { opacity: 0.4; transform: scale(1.5); }
+        }
+
+        @keyframes spin {
+          to { transform: rotate(360deg); }
+        }
+      `}</style>
+
+      <div style={{ height: '100vh', width: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+
+        {/* ══ TOP NAV BAR ══ */}
+        <header style={{
+          height: 52, flexShrink: 0,
+          display: 'flex', alignItems: 'center', paddingInline: 20, gap: 16,
+          background: 'var(--bg-2)',
+          borderBottom: '1px solid var(--border)',
+          zIndex: 10,
+        }}>
+          {/* Logo */}
+          <div style={{ display: 'flex', alignItems: 'center' }}>
+            <img src="/Sadoo.png" alt="Sadoo AI" style={{ height: 42, objectFit: 'contain' }} />
+          </div>
+
+          <div style={{ width: 1, height: 20, background: 'var(--border)', marginInline: 4 }} />
+
+          {/* Sentiment */}
+          <SentimentPill sentiment={sentiment} />
+
+          {/* Spacer */}
+          <div style={{ flex: 1 }} />
+
+          {/* Live badge + timer */}
+          {isCalling && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                <div style={{
+                  width: 7, height: 7, borderRadius: '50%', background: 'var(--red)',
+                  animation: 'ping 1.2s ease-in-out infinite',
+                }} />
+                <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--red)', letterSpacing: '0.08em' }}>JONLI</span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <Waveform active={isListening} />
+                <span style={{ fontSize: 13, fontWeight: 600, fontFamily: 'var(--mono)', color: 'var(--text-secondary)' }}>
+                  {callDuration}
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* Call actions */}
+          {!isCalling ? (
+            <button
+              onClick={handleStartCall}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 6,
+                background: 'var(--accent)', color: '#fff',
+                padding: '7px 14px', borderRadius: 8,
+                fontSize: 12, fontWeight: 700, letterSpacing: '0.04em',
+                transition: 'background 0.15s',
+              }}
+              onMouseEnter={e => (e.currentTarget.style.background = 'var(--accent-hover)')}
+              onMouseLeave={e => (e.currentTarget.style.background = 'var(--accent)')}
+            >
+              <Phone size={13} /> Muloqotni boshlash
+            </button>
+          ) : (
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                onClick={handleEndCall}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 6,
+                  background: 'var(--red-muted)', color: 'var(--red)',
+                  border: '1px solid rgba(248,113,113,0.25)',
+                  padding: '7px 14px', borderRadius: 8,
+                  fontSize: 12, fontWeight: 700, letterSpacing: '0.04em',
+                  transition: 'all 0.15s',
+                }}
+              >
+                <PhoneOff size={13} /> Tugatish
+              </button>
+              <button
+                onClick={handleSold}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 6,
+                  background: 'var(--green-muted)', color: 'var(--green)',
+                  border: '1px solid rgba(34,197,94,0.25)',
+                  padding: '7px 14px', borderRadius: 8,
+                  fontSize: 12, fontWeight: 700, letterSpacing: '0.04em',
+                  transition: 'all 0.15s',
+                }}
+                onMouseEnter={e => (e.currentTarget.style.background = 'rgba(34,197,94,0.12)')}
+                onMouseLeave={e => (e.currentTarget.style.background = 'var(--green-muted)')}
+              >
+                <CheckCircle2 size={13} /> SOTILDI
+              </button>
+            </div>
+          )}
+        </header>
+
+        {/* ══ THREE PANEL BODY ══ */}
+        <div style={{ flex: 1, display: 'flex', overflow: 'hidden', minHeight: 0 }}>
+
+          {/* ── LEFT: Transcript ── */}
+          <section style={{
+            width: 320, flexShrink: 0,
+            display: 'flex', flexDirection: 'column',
+            background: 'var(--bg-2)',
+            borderRight: '1px solid var(--border)',
+          }}>
+            {/* Mic toggle */}
+            <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)' }}>
+              <button
+                onClick={toggleListening}
+                disabled={!isCalling}
+                style={{
+                  width: '100%', padding: '9px', borderRadius: 8,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7,
+                  fontSize: 12, fontWeight: 600,
+                  background: isListening ? 'rgba(248,113,113,0.1)' : 'var(--accent-muted)',
+                  color: isListening ? 'var(--red)' : 'var(--accent)',
+                  border: `1px solid ${isListening ? 'rgba(248,113,113,0.25)' : 'rgba(59,130,246,0.25)'}`,
+                  opacity: !isCalling ? 0.4 : 1,
+                  transition: 'all 0.15s',
+                }}
+              >
+                {isListening ? <MicOff size={13} /> : <Mic size={13} />}
+                {isListening ? 'Tinglashni to\'xtatish' : 'Mijoz ovozini yoqish'}
+              </button>
+            </div>
+
+            {/* Messages */}
+            <div
+              ref={scrollRef}
+              style={{ flex: 1, overflowY: 'auto', padding: '16px', display: 'flex', flexDirection: 'column', gap: 14 }}
+            >
+              {transcript.length === 0 && (
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8, opacity: 0.35 }}>
+                  <Phone size={28} color="var(--text-dim)" />
+                  <p style={{ fontSize: 12, color: 'var(--text-dim)', textAlign: 'center' }}>Muloqot hali boshlanmagan</p>
                 </div>
-            )}
+              )}
 
-            {isAnalyzing && (
-                <div className="flex items-center gap-3 text-[10px] text-slate-500 font-medium animate-pulse">
-                    <div className="flex gap-1">
-                        <div className="w-1 h-1 bg-brand rounded-full animate-bounce" />
-                        <div className="w-1 h-1 bg-brand rounded-full animate-bounce [animation-delay:0.2s]" />
-                        <div className="w-1 h-1 bg-brand rounded-full animate-bounce [animation-delay:0.4s]" />
-                    </div>
-                    Tahlil qilinmoqda...
+              {transcript.map(entry => <Bubble key={entry.id} entry={entry} />)}
+
+              {interimText && (
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+                  <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-dim)', marginBottom: 4, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+                    Mijoz gapirmoqda…
+                  </span>
+                  <div style={{
+                    padding: '9px 13px', borderRadius: '2px 12px 12px 12px',
+                    background: 'var(--bg-3)', color: 'var(--text-dim)',
+                    fontSize: 13, fontStyle: 'italic',
+                    border: '1px dashed var(--border-strong)',
+                  }}>
+                    {interimText}
+                  </div>
                 </div>
-            )}
-        </div>
+              )}
 
-        <div className="p-4 bg-[#0F1218] border-t border-white/5">
-            <div className="flex gap-3 mb-3">
-                <button 
-                    onClick={toggleListening}
-                    disabled={!isCalling}
-                    className={`flex-1 py-3 rounded-xl text-xs font-bold uppercase tracking-widest flex items-center justify-center gap-2 transition-all ${
-                        isListening 
-                        ? 'bg-red-500/20 text-red-500 border border-red-500/50 animate-pulse' 
-                        : 'bg-brand/10 text-brand border border-brand/20'
-                    }`}
-                >
-                    {isListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
-                    {isListening ? "Mijozni eshitishni to'xtatish" : "Mijoz ovozini yoqish"}
-                </button>
+              {isAnalyzing && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <div style={{
+                    width: 14, height: 14, borderRadius: '50%',
+                    border: '2px solid var(--accent)',
+                    borderTopColor: 'transparent',
+                    animation: 'spin 0.7s linear infinite',
+                  }} />
+                  <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>Tahlil qilinmoqda…</span>
+                </div>
+              )}
             </div>
-            <div className="relative">
-                <input 
-                    type="text" 
-                    value={inputText}
-                    onChange={(e) => setInputText(e.target.value)}
-                    onKeyPress={(e) => e.key === 'Enter' && handleAddTranscript(inputText)}
-                    placeholder="Muloqot matnini bu yerga yozing..."
-                    disabled={!isCalling}
-                    className="w-full bg-[#1A1F26] border border-white/10 rounded-xl py-4 pl-5 pr-14 text-sm focus:ring-2 ring-brand/20 outline-none transition-all placeholder:text-slate-600"
+
+            {/* Text input */}
+            <div style={{ padding: '12px 16px', borderTop: '1px solid var(--border)', background: 'var(--bg-1)' }}>
+              <div style={{ position: 'relative' }}>
+                <input
+                  value={inputText}
+                  onChange={e => setInputText(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleAddTranscript(inputText)}
+                  placeholder="Muloqot matnini yozing…"
+                  disabled={!isCalling}
+                  style={{
+                    width: '100%', background: 'var(--bg-3)',
+                    border: '1px solid var(--border-strong)', borderRadius: 8,
+                    padding: '9px 40px 9px 12px',
+                    fontSize: 13, color: 'var(--text-primary)',
+                    opacity: !isCalling ? 0.4 : 1,
+                  }}
                 />
-                <button 
-                    onClick={() => handleAddTranscript(inputText)}
-                    className="absolute right-2 top-2 h-10 w-10 bg-brand text-white rounded-lg flex items-center justify-center hover:scale-105 transition-transform shadow-lg shadow-brand/20"
+                <button
+                  onClick={() => handleAddTranscript(inputText)}
+                  disabled={!isCalling}
+                  style={{
+                    position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)',
+                    width: 28, height: 28, borderRadius: 6,
+                    background: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    opacity: !isCalling ? 0.4 : 1,
+                    transition: 'background 0.15s',
+                  }}
                 >
-                    <ChevronRight className="w-6 h-6" />
+                  <ChevronRight size={15} color="#fff" />
                 </button>
+              </div>
             </div>
-        </div>
-      </section>
+          </section>
 
-      {/* 2. MIDDLE: AI SUGGESTIONS & STRATEGY SYNTHESIS (4 cols) */}
-      <section className="flex-1 border-r border-white/5 flex flex-col bg-[#0A0C10]">
-        <div className="p-5 border-b border-white/5 flex items-center gap-3">
-            <Zap className="w-5 h-5 text-brand" />
-            <h2 className="font-bold text-sm uppercase tracking-widest text-slate-400">Strategik Markaz</h2>
-        </div>
+          {/* ── MIDDLE: Analysis ── */}
+          <section style={{
+            flex: 1, display: 'flex', flexDirection: 'column',
+            background: 'var(--bg-1)', padding: '20px 24px', overflowY: 'auto',
+          }}>
+            <div style={{ maxWidth: 640, margin: '0 auto', width: '100%', display: 'flex', flexDirection: 'column', gap: 24 }}>
 
-        <div className="p-6 space-y-8 overflow-y-auto no-scrollbar">
-            {/* Strategy Synthesis Block */}
-            <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                    <h3 className="text-xs font-black text-slate-500 uppercase tracking-[0.2em]">Metodlar Kombinatsiyasi</h3>
-                    <div className="h-px flex-1 bg-white/5 ml-4"></div>
-                </div>
-                
-                <AnimatePresence mode="wait">
-                    {strategy ? (
-                        <motion.div 
-                            key={strategy.methodName}
-                            initial={{ opacity: 0, scale: 0.98 }}
-                            animate={{ opacity: 1, scale: 1 }}
-                            className="bg-brand/5 border border-brand/20 rounded-2xl p-6 relative overflow-hidden"
-                        >
-                            <div className="absolute top-0 right-0 p-4 opacity-10">
-                                <Share2 className="w-12 h-12 text-brand" />
-                            </div>
-                            <div className="relative z-10">
-                                <h4 className="text-brand font-black text-lg mb-1 leading-tight">{strategy.methodName}</h4>
-                                <p className="text-[10px] text-slate-400 font-bold mb-4 uppercase tracking-widest">{strategy.combination}</p>
-                                <div className="p-4 bg-black/40 rounded-xl border border-white/5">
-                                    <p className="text-sm text-slate-200 leading-relaxed italic">
-                                        "{strategy.benefit}"
-                                    </p>
-                                </div>
-                            </div>
-                        </motion.div>
-                    ) : (
-                        <div className="h-32 rounded-2xl border border-dashed border-white/10 flex items-center justify-center text-slate-600 text-xs text-center px-10 italic">
-                            Suhbat tahlili natijasida yangi metodlar kombinatsiyasi bu yerda paydo bo'ladi...
-                        </div>
-                    )}
-                </AnimatePresence>
-            </div>
-
-            {/* AI Suggestions Grid */}
-            <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                    <h3 className="text-xs font-black text-slate-500 uppercase tracking-[0.2em]">Tezkor Feedback</h3>
-                    <div className="h-px flex-1 bg-white/5 ml-4"></div>
-                </div>
-                <div className="grid grid-cols-1 gap-4">
-                    {suggestions.map((s) => (
-                        <SuggestionCard key={s.id} suggestion={s} />
-                    ))}
-                    {suggestions.length === 0 && (
-                        <div className="space-y-3 opacity-20">
-                            {[1, 2, 3].map(i => (
-                                <div key={i} className="h-20 bg-white/10 rounded-xl animate-pulse" />
-                            ))}
-                        </div>
-                    )}
-                </div>
-            </div>
-        </div>
-      </section>
-
-      {/* 3. RIGHT: STATS & CRM (4 cols) */}
-      <section className="w-[25%] min-w-[300px] flex flex-col bg-surface-900/30">
-        <div className="p-5 border-b border-white/5 flex items-center justify-between">
-            <h2 className="font-bold text-sm uppercase tracking-widest text-slate-400">Metrics & CRM</h2>
-            {isCalling && (
-                <div className="flex items-center gap-2">
-                    <div className="w-2 h-2 rounded-full bg-red-500 animate-ping" />
-                    <span className="text-[10px] font-bold text-red-400">LIVE</span>
-                </div>
-            )}
-        </div>
-
-        <div className="p-6 space-y-8 overflow-y-auto no-scrollbar">
-            {/* Stats Grid */}
-            <div className="grid grid-cols-1 gap-4">
-                <StatCard label="O'rtacha davomiylik" value="4:12" icon={Clock} color="bg-blue-500" trend="12" />
-                <StatCard label="Muvaffaqiyat ehtimoli" value="84%" icon={CheckCircle2} color="bg-emerald-500" trend="5" />
-                <StatCard label="Mijoz jalb qilinganligi" value="LOW" icon={Activity} color="bg-amber-500" />
-            </div>
-
-            {/* CRM Profile Card */}
-            <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                    <h3 className="text-xs font-black text-slate-500 uppercase tracking-[0.2em]">Mijoz Profili</h3>
-                    <div className="h-px flex-1 bg-white/5 ml-4"></div>
-                </div>
-                {activeContact ? (
-                    <div className="bg-surface-800 rounded-2xl border border-white/5 p-6 shadow-2xl">
-                        <div className="flex items-center gap-4 mb-6">
-                            <div className="w-14 h-14 rounded-full bg-brand/20 border border-brand/30 flex items-center justify-center text-brand font-black text-xl">
-                                {activeContact.name[0]}
-                            </div>
-                            <div>
-                                <h4 className="font-bold text-lg">{activeContact.name}</h4>
-                                <p className="text-[10px] text-slate-500 font-mono">{activeContact.phone}</p>
-                            </div>
-                        </div>
-                        <div className="space-y-3">
-                            <div className="flex justify-between items-center py-2 border-b border-white/5">
-                                <span className="text-xs text-slate-500">Tier:</span>
-                                <span className="text-xs font-bold text-amber-400">{activeContact.loyaltyTier}</span>
-                            </div>
-                            <div className="flex justify-between items-center py-2 border-b border-white/5">
-                                <span className="text-xs text-slate-500">Xaridlar:</span>
-                                <span className="text-xs font-bold">$1,240</span>
-                            </div>
-                        </div>
-                        <button className="w-full mt-6 bg-white/5 hover:bg-white/10 text-white py-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2">
-                            <History className="w-4 h-4" />
-                            To'liq tarix
-                        </button>
+              {/* Strategy */}
+              <div>
+                <SectionHead>Muloqot strategiyasi</SectionHead>
+                {strategy ? (
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.98 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    style={{
+                      background: 'var(--bg-2)', borderRadius: 'var(--radius)',
+                      padding: '20px', border: '1px solid var(--border)',
+                      boxShadow: '0 2px 8px -2px rgba(0,0,0,0.04)',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                      <div style={{ width: 32, height: 32, borderRadius: 8, background: 'var(--accent-muted)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <Layers size={16} color="var(--accent)" />
+                      </div>
+                      <span style={{ fontSize: 16, fontWeight: 700 }}>{strategy.methodName}</span>
                     </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                      <div style={{ fontSize: 13, background: 'var(--bg-3)', padding: '10px 14px', borderRadius: 8, borderLeft: '3px solid var(--accent)' }}>
+                        <div style={{ fontWeight: 700, fontSize: 10, color: 'var(--text-dim)', textTransform: 'uppercase', marginBottom: 4 }}>Uslub</div>
+                        {strategy.combination}
+                      </div>
+                      <div style={{ fontSize: 13, background: 'var(--green-muted)', padding: '10px 14px', borderRadius: 8, borderLeft: '3px solid var(--green)' }}>
+                        <div style={{ fontWeight: 700, fontSize: 10, color: 'var(--text-dim)', textTransform: 'uppercase', marginBottom: 4 }}>Kutilayotgan natija</div>
+                        {strategy.benefit}
+                      </div>
+                    </div>
+                  </motion.div>
                 ) : (
-                    <div className="p-8 border border-dashed border-white/10 rounded-2xl flex flex-col items-center justify-center text-center">
-                        <User className="w-8 h-8 text-slate-700 mb-2" />
-                        <p className="text-[10px] text-slate-600 font-bold uppercase">Mijoz tanlanmagan</p>
-                    </div>
+                  <Skeleton h={140} />
                 )}
+              </div>
+
+              {/* Suggestions */}
+              <div>
+                <SectionHead>Sun'iy intellekt tavsiyalari</SectionHead>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {suggestions.length > 0 ? (
+                    <AnimatePresence mode="popLayout">
+                      {suggestions.map(s => (
+                        <SuggestionCard key={s.id} suggestion={s} />
+                      ))}
+                    </AnimatePresence>
+                  ) : (
+                    <>
+                      <Skeleton h={72} />
+                      <Skeleton h={72} />
+                    </>
+                  )}
+                </div>
+              </div>
+
+            </div>
+          </section>
+
+          {/* ── RIGHT: Metrics + CRM ── */}
+          <section style={{
+            width: 280,
+            flexShrink: 0,
+            display: 'flex',
+            flexDirection: 'column',
+            background: 'var(--bg-2)',
+          }}>
+            <div style={{
+              padding: '12px 20px', borderBottom: '1px solid var(--border)',
+              display: 'flex', alignItems: 'center', gap: 8,
+            }}>
+              <BarChart2 size={14} color="var(--accent)" />
+              <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--text-dim)' }}>
+                Metrics & CRM
+              </span>
             </div>
 
-            {/* Action Buttons */}
-            {!isCalling ? (
-                <button 
-                  onClick={handleStartCall}
-                  className="w-full bg-brand p-4 rounded-2xl font-black text-sm uppercase tracking-widest text-white shadow-xl glow-blue hover:brightness-110 active:scale-[0.98] transition-all flex items-center justify-center gap-3"
-                >
-                  <Phone className="w-5 h-5" />
-                  Muloqotni Boshlash
-                </button>
-            ) : (
-                <div className="space-y-3">
-                    <button 
-                      onClick={handleEndCall}
-                      className="w-full bg-red-500/10 border border-red-500/20 text-red-500 p-4 rounded-2xl font-black text-sm uppercase tracking-widest hover:bg-red-500 hover:text-white transition-all flex items-center justify-center gap-3"
-                    >
-                      <Phone className="w-5 h-5 rotate-[135deg]" />
-                      Tugatish
-                    </button>
-                    <button className="w-full bg-emerald-500 p-4 rounded-2xl font-black text-sm uppercase tracking-widest text-white shadow-xl shadow-emerald-500/20 hover:brightness-110 transition-all flex items-center justify-center gap-3">
-                      <CheckCircle2 className="w-5 h-5" />
-                      SOTILDI
-                    </button>
-                </div>
-            )}
-        </div>
-      </section>
+            <div style={{ flex: 1, overflowY: 'auto', padding: '16px 16px 20px', display: 'flex', flexDirection: 'column', gap: 24 }}>
 
+              {/* Stats */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <MetricCard
+                  label="O'rtacha davomiylik"
+                  value="4:12"
+                  trend="12%"
+                  trendUp
+                  icon={Clock}
+                  accent="var(--accent)"
+                />
+                <MetricCard
+                  label="Muvaffaqiyat ehtimoli"
+                  value="84%"
+                  trend="5%"
+                  trendUp
+                  icon={TrendingUp}
+                  accent="var(--green)"
+                />
+                <MetricCard
+                  label="Mijoz jalb qilinganligi"
+                  value="Past"
+                  icon={Activity}
+                  accent="var(--amber)"
+                />
+              </div>
+
+              {/* CRM */}
+              <div>
+                <SectionHead>Mijoz profili</SectionHead>
+
+                {activeContact ? (
+                  <div style={{
+                    background: 'var(--bg-3)', border: '1px solid var(--border)',
+                    borderRadius: 'var(--radius)', padding: '14px',
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+                      <div style={{
+                        width: 40, height: 40, borderRadius: '50%',
+                        background: 'var(--accent-muted)',
+                        border: '1px solid rgba(59,130,246,0.25)',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontSize: 15, fontWeight: 700, color: 'var(--accent)', flexShrink: 0,
+                      }}>
+                        {activeContact.name[0]}
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 1 }}>
+                          {activeContact.name}
+                        </div>
+                        <div style={{ fontSize: 11, color: 'var(--text-dim)', fontFamily: 'var(--mono)' }}>
+                          {activeContact.phone}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+                      {[
+                        { label: 'Tier', value: activeContact.loyaltyTier, color: 'var(--amber)' },
+                        { label: 'Jami xaridlar', value: '$1,240', color: 'var(--text-primary)' },
+                        { label: 'So\'nggi xarid', value: '15 kun oldin', color: 'var(--text-secondary)' },
+                      ].map((row, i) => (
+                        <div key={i} style={{
+                          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                          paddingBlock: 9,
+                          borderBottom: i < 2 ? '1px solid var(--border)' : 'none',
+                        }}>
+                          <span style={{ fontSize: 12, color: 'var(--text-dim)' }}>{row.label}</span>
+                          <span style={{ fontSize: 12, fontWeight: 600, color: row.color }}>{row.value}</span>
+                        </div>
+                      ))}
+                    </div>
+
+                    <button
+                      onClick={() => setIsHistoryOpen(true)}
+                      style={{
+                        marginTop: 12, width: '100%', padding: '8px', borderRadius: 8,
+                        background: 'var(--bg-4)', color: 'var(--text-secondary)',
+                        fontSize: 12, fontWeight: 600,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                        border: '1px solid var(--border)',
+                        transition: 'background 0.15s',
+                      }}
+                      onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-2)')}
+                      onMouseLeave={e => (e.currentTarget.style.background = 'var(--bg-4)')}
+                    >
+                      <History size={12} /> To'liq tarix
+                    </button>
+                  </div>
+                ) : (
+                  <div style={{
+                    padding: '32px 16px', border: '1px dashed var(--border-strong)',
+                    borderRadius: 'var(--radius)',
+                    display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8,
+                  }}>
+                    <User size={22} color="var(--text-dim)" />
+                    <span style={{ fontSize: 11, color: 'var(--text-dim)', fontWeight: 600 }}>Mijoz tanlanmagan</span>
+                    <span style={{ fontSize: 11, color: 'var(--text-dim)', opacity: 0.6 }}>Muloqotni boshlang</span>
+                  </div>
+                )}
+              </div >
+            </div >
+          </section >
+
+        </div >
+      </div>
+
+      <HistoryModal
+        isOpen={isHistoryOpen}
+        onClose={() => setIsHistoryOpen(false)}
+        contact={activeContact}
+      />
+
+      <SuccessToast show={isSoldSuccess} />
+    </>
+  );
+}
+
+/* ─────────────────────────────────────
+   History Modal
+───────────────────────────────────── */
+function HistoryModal({ isOpen, onClose, contact }: { isOpen: boolean; onClose: () => void; contact: CRMContact | null }) {
+  if (!isOpen || !contact) return null;
+
+  const historyItems = [
+    { date: '2026-04-12', event: 'Uchrashuv belgilandi', type: 'call', description: 'Mijoz mahsulotga qiziqish bildirdi.' },
+    { date: '2026-03-28', event: 'Taqdimot yuborildi', type: 'email', description: 'Narxlar va texnik hujjatlar.' },
+    { date: '2026-03-15', event: 'Xarid amalga oshirildi', type: 'purchase', description: 'Premium paket (1 yillik).' },
+  ];
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, zIndex: 100,
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      padding: 20,
+    }}>
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        onClick={onClose}
+        style={{ position: 'absolute', inset: 0, background: 'rgba(15, 22, 35, 0.4)', backdropFilter: 'blur(4px)' }}
+      />
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95, y: 20 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        style={{
+          position: 'relative', width: '100%', maxWidth: 480, height: '80vh',
+          background: 'var(--bg-2)', borderRadius: 16, overflow: 'hidden',
+          boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)',
+          display: 'flex', flexDirection: 'column',
+        }}
+      >
+        <div style={{ padding: '20px 24px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div>
+            <h2 style={{ fontSize: 18, fontWeight: 700 }}>Muloqotlar tarixi</h2>
+            <p style={{ fontSize: 13, color: 'var(--text-dim)' }}>{contact.name} bilan barcha aloqalar</p>
+          </div>
+          <button onClick={onClose} style={{ width: 32, height: 32, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-3)', color: 'var(--text-secondary)' }}>
+            <X size={18} />
+          </button>
+        </div>
+
+        <div style={{ flex: 1, overflowY: 'auto', padding: '24px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 24, position: 'relative' }}>
+            <div style={{ position: 'absolute', left: 7, top: 8, bottom: 8, width: 1, background: 'var(--border)' }} />
+
+            {historyItems.map((item, i) => (
+              <div key={i} style={{ display: 'flex', gap: 16, position: 'relative' }}>
+                <div style={{
+                  width: 15, height: 15, borderRadius: '50%', background: 'var(--bg-2)',
+                  border: `2px solid ${item.type === 'purchase' ? 'var(--green)' : 'var(--accent)'}`,
+                  zIndex: 1, marginTop: 4, flexShrink: 0,
+                }} />
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-dim)', textTransform: 'uppercase', marginBottom: 4 }}>
+                    {item.date}
+                  </div>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 2 }}>
+                    {item.event}
+                  </div>
+                  <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                    {item.description}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div style={{ padding: '16px 24px', background: 'var(--bg-1)', borderTop: '1px solid var(--border)' }}>
+          <button
+            onClick={onClose}
+            style={{
+              width: '100%', padding: '10px', borderRadius: 8,
+              background: 'var(--text-primary)', color: '#fff',
+              fontSize: 14, fontWeight: 600,
+            }}
+          >
+            Yopish
+          </button>
+        </div>
+      </motion.div>
     </div>
+  );
+}
+
+/* ─────────────────────────────────────
+   Success Toast
+───────────────────────────────────── */
+function SuccessToast({ show }: { show: boolean }) {
+  return (
+    <AnimatePresence>
+      {show && (
+        <motion.div
+          initial={{ opacity: 0, y: -100, x: '-50%' }}
+          animate={{ opacity: 1, y: 24 }}
+          exit={{ opacity: 0, y: -100 }}
+          style={{
+            position: 'fixed', left: '50%', zIndex: 1000,
+            background: 'var(--green)', color: '#fff',
+            padding: '12px 24px', borderRadius: 100,
+            boxShadow: '0 10px 25px -5px rgba(22, 163, 74, 0.4)',
+            display: 'flex', alignItems: 'center', gap: 10,
+            fontWeight: 700, fontSize: 15,
+          }}
+        >
+          <CheckCircle2 size={20} />
+          Muvaffaqiyatli sotildi! Tabriklaymiz! 🎉
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 }
