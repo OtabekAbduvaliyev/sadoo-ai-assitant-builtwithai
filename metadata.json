@@ -1,0 +1,6 @@
+{
+  "name": "Sadoo AI assistant",
+  "description": "Real-time meeting analysis and sales strategy synthesis powered by Gemini Pro.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": []
+}
